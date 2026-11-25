@@ -40,24 +40,56 @@ variables with defaults for this machine. `scripts/linux/place-window.sh` pins t
 `scripts/linux/press-a.sh` sends the A presses; the launcher starts both when `XCL_APRESS` is
 non-zero.
 
-- **Prefix**: `/mnt/games/xcl-prefix` (GE-Proton11-1's `files/bin/wine`, `pfx/` inside). A
-  prefix created by bare Wine has Wine's own `d3d12.dll`/`d3d12core.dll`, a stub that answers
-  `E_NOTIMPL` for `D3D12GetInterface`; the launcher copies vkd3d-proton's pair from
-  `files/lib/wine/vkd3d-proton/x86_64-windows/` and `libvkd3d-*.dll` from
-  `files/lib/vkd3d/x86_64-windows/` into `system32` when they differ.
-- **`WINEDLLOVERRIDES="d3d12=n;d3d12core=n"`** makes Wine load those copies. `dxgi` stays Wine's
-  builtin, which vkd3d-proton expects.
+- **Prefix**: `/mnt/games/xcl-prefix*` (GE-Proton11-1's `files/bin/wine`, `pfx/` inside). A
+  prefix made by bare Wine has Wine's own DLLs, not Proton's set; the launcher copies
+  vkd3d-proton's `d3d12.dll`/`d3d12core.dll`, DXVK's `dxgi.dll` (+`nvapi64.dll`) and
+  `libvkd3d-*.dll` into `system32` when they differ.
+- **`WINEDLLOVERRIDES="d3d12=n;d3d12core=n;dxgi=n;dxil=n;nvapi64=n"`**. `dxgi=n` fails
+  when system32 holds Wine's builtin dxgi; it needs DXVK's dxgi there (Wine's builtin
+  `d3d12_swapchain_init` crashes creating a swap chain with a vkd3d-proton queue).
+- **`VKD3D_CONFIG` always includes `ignore_shared_fence`** (else shared fences hang).
 - **DXC**: `dxcompiler.dll` + `dxil.dll` (DXC 1.9.2609) in `/mnt/games/xcl-data/dxc`, exported as
   `XCL_DXC_DIR`. Both are loaded by absolute path, so no `dxil` override is needed.
 - **XGameRuntime**: Wine has no `System32\xgameruntime.dll`. XCL's preflight only warns (its own
   task queues, async and networking are used); dialogs, text entry, invites and streaming are the
   parts that are missing.
-- **Pad A from the shell**: `hle::kbm` maps Enter/Space to A while the XCL window has focus, on
-  top of any real controller, so `xdotool key Return` after `windowactivate` is enough.
-- **Gamepad focus**: the window keeps the mouse held; `windowactivate` first, then send keys.
+- **Pad A from the shell**: `hle::kbm` + `gameinput::keyboard` map Enter/Space to A via
+  `GetAsyncKeyState` while the XCL window has focus. Polls run ~30 fps: HOLD the key
+  (`keydown; sleep 0.3-0.4; keyup`). Taps fall between polls. Arrows = D-pad.
+- **ONE instance at a time.** A crashed run's game process can outlive its shell; a second
+  instance concurrently shares the GPU and the data dir and hangs pre-present (looks like a
+  regression, it is not). Before each run: `pgrep -f "game_scarlett|xcl\.exe run"` must be
+  empty (kill strays by PID, never by pattern matching your own shell).
+
+## Upstream picks on this branch (all unmerged upstream, all under `hle/` + scripts)
+
+- XDisplay HDR refusal → `Disabled` (upstream PR #1069).
+- In-place vtable adoption breaks vkd3d-proton type checks + shared-fence hangs (PR #867).
+- Dedicated PC direct queue for PresentX under Wine (PR #793).
+- Console MS in the AS slot translated as the mesh shader (PR #541; its recompiler half
+  #304 is already upstream).
+- Newer list layout #139 Reset through `title_list::reset` (PR #929, anti-freeze).
+
+## Current frontier (GTA VI dump, RTX 4080 SUPER, GE-Proton11-1)
+
+Boot → account picker → setup wizard → legal → privacy → main-menu art, all at 30 fps
+and screenshotted. Then world streaming (terrain/vehicles/props ttdb reads, BCPack refuses,
+audio starts, fps 30 → 9) and death within minutes, three signatures seen: the title GPU
+watchdog (write 0 at `game+0x2215c35`), `abort`/exit 3, and a memcpy AV (`msvcrt.dll`,
+`game+0x4daa2c8 ← +0x979f5b ← +0x4fb0c2f ← +0x50bb3f0 ← +0x979db0` via `xcl.exe+0xa11f8`,
+dst wild, 0x800 bytes — 4 identical occurrences). Best runs: 17 min / 28.5k frames,
+25 min to post-setup loading. The streaming crash is probabilistic (survived 2 of ~8 runs),
+not prefix- or cache-dependent (ruled out: title dir, vkd3d cache, DXIL/translated cache,
+driver blobs, NVIDIA GLCache; the "prefix poison" was concurrent zombie instances).
+
+- `xcl.toml` per title supports `log_level = "debug"` for the full call trace.
+- Screenshots: `import -window $(xdotool search --onlyvisible --name '^XCL') shot.png`.
+- Title state that matters: `pls/settings/settings.xml` (setup done), `saves/`,
+  `gamesave/`, `cache/uma_coherent.txt`. The game folder is never written to.
 
 ## Data
 
-`/mnt/games/xcl-data` is `XCL_DATA_ROOT`: `<title>/xcl.toml`, `overlay/`, `saves/`, `pls/`,
-`temp/`, `cache/`, `logs/xcl.log` and `logs/report.json`. Nothing here is committed, and the game
-folder is never written to.
+`/mnt/games/xcl-data` is `XCL_DATA_ROOT`: `<title>/xcl.toml`, `overlay/` (vkd3d-proton's
+disk cache lands here), `saves/`, `pls/`, `temp/`, `cache/`, `logs/xcl.log` and
+`logs/report.json` (report.json is only written at exit; xcl.log is the live one).
+Nothing here is committed.
