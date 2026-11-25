@@ -69,6 +69,11 @@ non-zero.
 - Console MS in the AS slot translated as the mesh shader (PR #541; its recompiler half
   #304 is already upstream).
 - Newer list layout #139 Reset through `title_list::reset` (PR #929, anti-freeze).
+- **XG `CopyFromSubresource` takes 8 args, not 7** (own fix): the game's slot-9 call
+  sets 4 stack slots; XCL read 6 params, so row/slice pitches were shifted one slot left
+  and every readback wrote through wild pointers (deterministic memcpy AV, identical
+  stack across runs). Adding the source pitch puts row_pitch/slice_pitch right (verified:
+  2048/0x40000 for a 512 BC7 mip0). `copy_into` left alone (its probes vary).
 
 ## Current frontier (GTA VI dump, RTX 4080 SUPER, GE-Proton11-1)
 
