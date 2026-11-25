@@ -487,8 +487,10 @@ unsafe extern "system" fn cpp_exception_logger(info: *mut EXCEPTION_POINTERS) ->
     if rec.ExceptionCode != CPP || rec.NumberParameters < 4 {
         return 0;
     }
-    // thrown by the title's code (its image holds the throw info), not by XCL's libraries
-    if !crate::modules::mapped_modules().iter().any(|m| m.base == rec.ExceptionInformation[3]) {
+    // thrown by the title's code (its image holds the throw info), not by XCL's libraries –
+    // `XCL_TRACE_THROWS=1` logs every throw, whichever module it comes from
+    let trace_all = std::env::var_os("XCL_TRACE_THROWS").is_some();
+    if !trace_all && !crate::modules::mapped_modules().iter().any(|m| m.base == rec.ExceptionInformation[3]) {
         return 0;
     }
     static N: AtomicUsize = AtomicUsize::new(0);
