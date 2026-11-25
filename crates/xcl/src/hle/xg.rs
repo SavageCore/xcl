@@ -678,7 +678,7 @@ fn subresource(t: &Texture, plane: u32, sub: u32) -> Option<(&Surface, u64, usiz
 }
 
 /// rows of `src` (`row_pitch` apart) → the level's place in `dst` (the whole resource)
-unsafe extern "system" fn copy_into(p: *mut c_void, dst: *mut u8, plane: u32, sub: u32, src: *const u8, src_pitch: u32, row_pitch: u32, slice_pitch: u32) -> HRESULT {
+unsafe extern "system" fn copy_into(p: *mut c_void, dst: *mut u8, plane: u32, sub: u32, src: *const u8, row_pitch: u32, slice_pitch: u32) -> HRESULT {
     let Some((t, at, i, k)) = subresource(tex(p), plane, sub).filter(|_| !dst.is_null() && !src.is_null()) else { return E_INVALIDARG };
     let m = t.chain.levels[i];
     let row = m.width * t.bpe as usize;
