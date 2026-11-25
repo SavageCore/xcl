@@ -44,7 +44,8 @@ z() { printf 'Z:%s' "$1"; }
 mkdir -p "$XCL_PREFIX" "$XCL_DATA_ROOT"
 
 export WINEPREFIX="$XCL_PREFIX/pfx"
-export WINEDLLOVERRIDES="d3d12=n;d3d12core=n;dxgi=n;dxil=n;nvapi64=n"
+# winepulse.drv= : Wine's PulseAudio driver aborts the whole process on
+export WINEDLLOVERRIDES="d3d12=n;d3d12core=n;dxgi=n;dxil=n;nvapi64=n;winepulse.drv="
 
 # A prefix made by bare Wine holds Wine's own DLLs, not Proton's set. Proton installs
 # DXVK's dxgi + nvapi and vkd3d-proton's d3d12 pair into the prefix; a bare prefix needs
