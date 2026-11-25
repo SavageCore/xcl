@@ -544,7 +544,13 @@ pub unsafe extern "system" fn XGCreateTextureComputer(desc: *const u8, out: *mut
     *out = std::ptr::null_mut();
     match Texture::new(&*(desc as *const [u8; 0x38])) {
         Ok(tex) => {
-            *out = Box::into_raw(Box::new(Computer { vtbl: vtbl().as_ptr(), refs: AtomicU32::new(1), tex })) as *mut c_void;
+            let d = &*(desc as *const [u8; 0x38]);
+            let u = |o: usize| u32::from_le_bytes(d[o..o + 4].try_into().unwrap());
+            let w16 = |o: usize| u16::from_le_bytes(d[o..o + 2].try_into().unwrap()) as u32;
+            let computer = Box::into_raw(Box::new(Computer { vtbl: vtbl().as_ptr(), refs: AtomicU32::new(1), tex })) as *mut c_void;
+            crate::xlog_debug!("xg::create computer={computer:?} dim={} w={} h={} array={} mips={} fmt={} samples={} layout={:#x} flags={:#x}",
+                u(0), u64::from_le_bytes(d[0x10..0x18].try_into().unwrap()), u(0x18), w16(0x1C), w16(0x1E), u(0x20), u(0x24), u(0x2C), u(0x30));
+            *out = computer;
             S_OK
         }
         Err(hr) => {
@@ -672,7 +678,8 @@ fn subresource(t: &Texture, plane: u32, sub: u32) -> Option<(&Surface, u64, usiz
 }
 
 /// rows of `src` (`row_pitch` apart) → the level's place in `dst` (the whole resource)
-unsafe extern "system" fn copy_into(p: *mut c_void, dst: *mut u8, plane: u32, sub: u32, src: *const u8, row_pitch: u32, slice_pitch: u32) -> HRESULT {
+unsafe extern "system" fn copy_into(p: *mut c_void, dst: *mut u8, plane: u32, sub: u32, src: *const u8, row_pitch: u32, slice_pitch: u32, probe: u64) -> HRESULT {
+    crate::xlog_debug!("xg::copy_into computer={p:?} dst={dst:?} plane={plane} sub={sub} src={src:?} row_pitch={row_pitch} slice_pitch={slice_pitch} probe={probe:#x}");
     let Some((t, at, i, k)) = subresource(tex(p), plane, sub).filter(|_| !dst.is_null() && !src.is_null()) else { return E_INVALIDARG };
     let m = t.chain.levels[i];
     let row = m.width * t.bpe as usize;
@@ -695,8 +702,16 @@ unsafe extern "system" fn copy_into(p: *mut c_void, dst: *mut u8, plane: u32, su
 }
 
 /// the level's place in `src` (the whole resource) → rows of `dst` (`row_pitch` apart)
-unsafe extern "system" fn copy_from(p: *mut c_void, dst: *mut u8, plane: u32, sub: u32, src: *const u8, row_pitch: u32, slice_pitch: u32) -> HRESULT {
+unsafe extern "system" fn copy_from(p: *mut c_void, dst: *mut u8, plane: u32, sub: u32, src: *const u8, _src_pitch: u32, row_pitch: u32, slice_pitch: u32) -> HRESULT {
+    crate::xlog_debug!("xg::copy_from computer={p:?} dst={dst:?} plane={plane} sub={sub} src={src:?} src_pitch={_src_pitch:#x} row_pitch={row_pitch} slice_pitch={slice_pitch}");
     let Some((t, at, i, k)) = subresource(tex(p), plane, sub).filter(|_| !dst.is_null() && !src.is_null()) else { return E_INVALIDARG };
+    {
+        let tex = tex(p);
+        if let Some((s, off)) = tex.plane_surface(plane) {
+            crate::xlog_debug!("xg::copy_from tex w={} h={} array={} mips={} mode={} bpe={} side={} plane_off={:#x} sub_mip={i} slice={k} slice_bytes={:#x} levels={}",
+                s.width, s.height, s.array, tex.mips, s.mode, s.bpe, s.side, off, s.chain.slice_bytes, s.chain.levels.len());
+        }
+    }
     let m = t.chain.levels[i];
     let row = m.width * t.bpe as usize;
     if t.depth > 0 {
@@ -731,6 +746,7 @@ mod tests {
         d[0x2C..0x30].copy_from_slice(&layout.to_le_bytes());
         d
     }
+
 
     /// As the console's library answers (seen on it): RGBA8 256×256, full chain, 64KB_S.
     #[test]
