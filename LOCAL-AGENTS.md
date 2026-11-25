@@ -91,6 +91,30 @@ driver blobs, NVIDIA GLCache; the "prefix poison" was concurrent zombie instance
 - Screenshots: `import -window $(xdotool search --onlyvisible --name '^XCL') shot.png`.
 - Title state that matters: `pls/settings/settings.xml` (setup done), `saves/`,
   `gamesave/`, `cache/uma_coherent.txt`. The game folder is never written to.
+- `XCL_TRACE_WAITS=1` (+ `XCL_THREAD_DUMP_AT`) names what stuck threads wait on;
+  `XCL_TRACE_FAULTS=1` logs access violations as raised, before the title's own crash
+  handler (Breakpad) can hide them as a silent exit 3.
+- **XG `CopyFromSubresource` takes 8 args, `CopyInto` takes 7.** The game's slot-9 call
+  sets 4 stack slots; the 8th reads back the exact mip size (0x40000 for a 512 BC7 mip0),
+  and shifting makes row_pitch=2048/slice_pitch=0x40000 land correctly, fixing a
+  deterministic memcpy AV (identical stack across 5 runs). `copy_into`'s 8th slot reads
+  varying stack garbage while its 6-arg form matches sane pitches and working uploads.
+- **Kill `winedbg --auto` zombies before each run** (`pkill -f 'winedbg --auto'`): every
+  crashed run leaves one holding the dead game (window, GPU, wineserver state) and later
+  runs hang pre-present or misbehave. A `sleep 55; import -window` loop can also hang on
+  a dead window - kill those too. Verify zero `game_scarlett`/`xcl.exe`/`winedbg` before
+  starting (single instance only; concurrent instances corrupt the shared data dir).
+- **Pre-present hang**: the render thread waits from ~3.6 s on a never-set game event,
+  other threads on events last set ~7 s; GPU idle, no compilers running. Flaky (~50%
+  boots); not ASLR, prefix, title dir or caches (all ruled out by isolation). Suspected
+  lost wakeup/deadlock in the title under Wine timing; needs game-side root-causing.
+- **Streaming deaths**: GPU watchdog (write 0 at `game+0x2215c35`), silent exit 3
+  (most likely a Breakpad-handled crash - catch it with `XCL_TRACE_FAULTS=1`), and
+  memcpy AVs (fixed: copy_from arity; volume-texture copies under investigation).
+  Best runs: 17 min / 28.5k frames, Game Running + mission + player + vehicle + camera
+  (title's own crash log), menus at locked 30 fps.
+- World rendering itself is upstream's gap (mesh-in-AS refused, BCPack undecodable);
+  no 3D world visible here either, matching upstream native-Windows state.
 
 ## Data
 
