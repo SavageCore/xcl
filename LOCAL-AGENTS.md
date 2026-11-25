@@ -113,6 +113,17 @@ driver blobs, NVIDIA GLCache; the "prefix poison" was concurrent zombie instance
   memcpy AVs (fixed: copy_from arity; volume-texture copies under investigation).
   Best runs: 17 min / 28.5k frames, Game Running + mission + player + vehicle + camera
   (title's own crash log), menus at locked 30 fps.
+- **Exit 3 during world load = VRAM exhaustion, not a code bug** (found by sampling
+  `nvidia-smi` every 3 s through the crash): VRAM climbs to 15,871-15,984 MB of 16,384 MB
+  and vkd3d-proton (no residency manager, unlike D3D12 on Windows) fails the allocation and
+  aborts the process; the desktop then freezes for seconds while the GPU tears down. The
+  title's streaming working set does not fit a 16 GB card at default pools. With
+  `title_memory_mb = 6144`, `uma_mb = 3072` in the title's `xcl.toml` and
+  `XCL_COHERENT_MB=3072` it stops crashing and stays in the world-streaming black screen
+  (upstream's rendering gap) instead. Series S (`device_type = "lockhart"`) trips a game
+  assert at
+  `game+0xb18de7`, so stay anaconda. Edit `pls/settings/settings.xml` only with
+  a backup: the title rewrites it.
 - World rendering itself is upstream's gap (mesh-in-AS refused, BCPack undecodable);
   no 3D world visible here either, matching upstream native-Windows state.
 
